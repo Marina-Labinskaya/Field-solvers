@@ -10,16 +10,19 @@ double f_real_solution(double t, double x, double y = 0.0, double z = 0.0) {
 
 int main()
 {
-	double t = 0.001;
+	int test_x = 4;
+	int test_y = 3;
+	std::ofstream fout("Ey_field.csv");
 	elec_magn_field Field(f);
-	elec_magn_field F = Field.field_integrate(t);
-	std::cout << " real solution:" << std::endl;
-	for (unsigned i = 0; i < m; ++i)
-		 {
-			std::cout << "i= " << i << std::endl;
-			std::cout << std::endl;
-			std::cout << f_real_solution(t, A + dx * i);
-			std::cout << std::endl;
-		}
+	for (double t = 0; t < T; t += dt) {
+		elec_magn_field F = Field.field_integrate(t);
+		fout << t << ";" << F.E.Ey[test_x][test_y] << std::endl;
+	}
+	fout.close();
+	std::ofstream fout2("Ey_real_field.csv");
+	for (double t = 0; t < T; t += dt) {
+		fout2 << t << ";" << f_real_solution(t, test_x * dx + A) << std::endl;
+	}
+	fout2.close();
 	return 0;
 }
