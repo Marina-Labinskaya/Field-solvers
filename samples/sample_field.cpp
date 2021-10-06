@@ -14,15 +14,25 @@ int main()
 	int test_y = 3;
 	std::ofstream fout("Ey_field.csv");
 	elec_magn_field Field(f);
-	for (double t = 0; t < T; t += dt) {
-		elec_magn_field F = Field.field_integrate(t);
-		fout << t << ";" << F.E.Ey[test_x][test_y] << std::endl;
+	for (double t = dt; t < T; t += dt) {
+		elec_magn_field F = Field.field_integrate();
+		fout << t << ";" << F.E.y[test_x][test_y] << ";" << f_real_solution(t, test_x * dx + A) << std::endl;
+		
+
 	}
 	fout.close();
-	std::ofstream fout2("Ey_real_field.csv");
+	std::ofstream fout3("Ey_x.csv");
+	elec_magn_field Field2(f);
+	elec_magn_field F2;
+	for (double t = dt; t < T; t += dt)
+		F2 = Field2.field_integrate();
+	for (int i = 0; i < F2.E.y.size(); ++i)
+		fout3 << i * dx << ";" << F2.E.y[i][test_y] << ";" << f_real_solution(dt, i* dx + A) << std::endl;
+	fout3.close();
+	/*std::ofstream fout2("Ey_real_field.csv");
 	for (double t = 0; t < T; t += dt) {
 		fout2 << t << ";" << f_real_solution(t, test_x * dx + A) << std::endl;
 	}
-	fout2.close();
+	fout2.close();*/
 	return 0;
 }
