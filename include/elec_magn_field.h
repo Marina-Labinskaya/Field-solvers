@@ -5,29 +5,8 @@
 #include <vector>
 #include <fstream>
 
-const double c = 3 * pow(10, 8); // скорость света
-const double dx = 5 * pow(10, 8); // шаг по координате x
-const double dy = 5 * pow(10, 8); // шаг по координате y
-const double dt = 1 * pow(10, -3);
-
 const double PI = 3.14;
-
-// границы расчетной области
-
-// по координате x
-const double A = 0.0;
-const double B = 10 * pow(10, 9);
-
-// по координате y
-const double C = 0.0;
-const double D = 5 * pow(10, 9);
-
-// количество узлов по x и y
-const int m = int((B - A) / dx + 1);
-const int n = int((D - C) / dy + 1);
-
-// по t
-const double T = 1 * pow (10, -1);
+const double c = 3e+10; // скорость света
 
 struct field_characteristics {
 	std::vector<std::vector<double>> x;
@@ -35,12 +14,37 @@ struct field_characteristics {
 	std::vector<std::vector<double>> z;
 };
 
+struct estimated_area {
+	const double A, B, C, D;
+	estimated_area(double a = 0.0, double b = 1e+10, double c = 0.0, double d = 5e+10) : A{ a }, B{ b }, C{ c }, D{ d } {}
+};
+
+struct field_steps {
+	const double dx;
+	const double dy;
+	const double dt;
+	field_steps(double _dx = 5e+8, double _dy = 10e+8, double _dt = 1e-4) : dx{ _dx }, dy{ _dy }, dt{ _dt } {}
+};
+
 class elec_magn_field {
 
 public:
 	field_characteristics E, B, J;
 
+	estimated_area area;
+
+	field_steps steps;
+	// по t
+	const double T = 1e-1;
+
+	// кол-во узлов в сетке
+	const int m = int((area.B - area.A) / steps.dx + 1);
+	const int n = int((area.D - area.C) / steps.dy + 1);
+
 	elec_magn_field() {
+
+		estimated_area area{};
+		field_steps steps{};
 
 		E.x.assign(m, std::vector<double>(n));
 		E.y.assign(m, std::vector<double>(n));
@@ -73,6 +77,9 @@ public:
 
 	elec_magn_field(double(*pf)(double, double, double)) {
 
+		estimated_area area{};
+		field_steps steps{};
+
 		E.x.assign(m, std::vector<double>(n));
 		E.y.assign(m, std::vector<double>(n));
 		E.z.assign(m, std::vector<double>(n));
@@ -89,12 +96,15 @@ public:
 			for (unsigned int j = 0; j < n; ++j) {
 
 				E.x[i][j] = 0.0;
-				E.y[i][j] = pf(dx * i + A, 0.0, 0.0);
+				//E.x[i][j] = pf(steps.dy * j + area.C, 0.0, 0.0);
+				E.y[i][j] = pf(steps.dx * i + area.A, 0.0, 0.0);
+				//E.y[i][j] = 0.0;
 				E.z[i][j] = 0.0;
 
 				B.x[i][j] = 0.0;
 				B.y[i][j] = 0.0;
 				B.z[i][j] = E.y[i][j];
+				//B.z[i][j] = -E.x[i][j];
 
 				J.x[i][j] = 0.0;
 				J.y[i][j] = 0.0;
@@ -107,127 +117,142 @@ public:
 			}
 	}
 
-	   elec_magn_field& field_integrate() {
+	elec_magn_field& get_boundary_conditions_E() {
+
+		for (int i = 0; i < m; i++) { // j == 0
+			E.x[i][0] = E.x[i][0] - 4.0 * PI * steps.dt * J.x[i][0] + c * steps.dt * (B.z[i][1] - B.z[i][n - 1]) / (2.0 * steps.dy);
+			if ((i != 0) && (i != m - 1)) {
+				E.y[i][0] = E.y[i][0] - 4.0 * PI * steps.dt * J.y[i][0] - c * steps.dt * (B.z[i + 1][0] - B.z[i - 1][0]) / (2.0 * steps.dx);
+				E.z[i][0] = E.z[i][0] - 4.0 * PI * steps.dt * J.z[i][0] + c * steps.dt * ((B.y[i + 1][0] - B.y[i - 1][0]) / (2.0 * steps.dx) - \
+					(B.x[i][1] - B.x[i][n - 1]) / (2.0 * steps.dy));
+			}
+			if (i == 0) {
+				E.y[i][0] = E.y[i][0] - 4.0 * PI * steps.dt * J.y[i][0] - c * steps.dt * (B.z[i + 1][0] - B.z[m - 1][0]) / (2.0 * steps.dx);
+				E.z[i][0] = E.z[i][0] - 4.0 * PI * steps.dt * J.z[i][0] + c * steps.dt * ((B.y[i + 1][0] - B.y[m - 1][0]) / (2.0 * steps.dx) - \
+					(B.x[i][1] - B.x[i][n - 1]) / (2.0 * steps.dy));
+			}
+			if (i == m - 1) {
+				E.y[i][0] = E.y[i][0] - 4.0 * PI * steps.dt * J.y[i][0] - c * steps.dt * (B.z[0][0] - B.z[i - 1][0]) / (2.0 * steps.dx);
+				E.z[i][0] = E.z[i][0] - 4.0 * PI * steps.dt * J.z[i][0] + c * steps.dt * ((B.y[0][0] - B.y[i - 1][0]) / (2.0 * steps.dx) - \
+					(B.x[i][1] - B.x[i][n - 1]) / (2.0 * steps.dy));
+			}
+		}
+
+		for (int i = 0; i < m; i++) { // j == n-1
+			E.x[i][n - 1] = E.x[i][n - 1] - 4.0 * PI * steps.dt * J.x[i][n - 1] + c * steps.dt * (B.z[i][0] - B.z[i][n - 2]) / (2.0 * steps.dy);
+			if ((i != 0) && (i != m - 1)) {
+				E.y[i][n - 1] = E.y[i][n - 1] - 4.0 * PI * steps.dt * J.y[i][n - 1] - c * steps.dt * (B.z[i + 1][n - 1] - B.z[i - 1][n - 1]) / (2.0 * steps.dx);
+				E.z[i][n - 1] = E.z[i][n - 1] - 4.0 * PI * steps.dt * J.z[i][n - 1] + c * steps.dt * ((B.y[i + 1][n - 1] - B.y[i - 1][n - 1]) / (2.0 * steps.dx) - \
+					(B.x[i][0] - B.x[i][n - 2]) / (2.0 * steps.dy));
+			}
+			if (i == 0) {
+				E.y[i][n - 1] = E.y[i][n - 1] - 4.0 * PI * steps.dt * J.y[i][n - 1] - c * steps.dt * (B.z[i + 1][n - 1] - B.z[m - 1][n - 1]) / (2.0 * steps.dx);
+				E.z[i][n - 1] = E.z[i][n - 1] - 4.0 * PI * steps.dt * J.z[i][n - 1] + c * steps.dt * ((B.y[i + 1][n - 1] - B.y[m - 1][n - 1]) / (2.0 * steps.dx) - \
+					(B.x[i][0] - B.x[i][n - 2]) / (2.0 * steps.dy));
+			}
+			if (i == m - 1) {
+				E.y[i][n - 1] = E.y[i][n - 1] - 4.0 * PI * steps.dt * J.y[i][n - 1] - c * steps.dt * (B.z[0][n - 1] - B.z[i - 1][n - 1]) / (2.0 * steps.dx);
+				E.z[i][n - 1] = E.z[i][n - 1] - 4.0 * PI * steps.dt * J.z[i][n - 1] + c * steps.dt * ((B.y[0][n - 1] - B.y[i - 1][n - 1]) / (2.0 * steps.dx) - \
+					(B.x[i][0] - B.x[i][n - 2]) / (2.0 * steps.dy));
+			}
+		}
+
+		for (int j = 1; j < n - 1; j++) { // i == 0
+			E.x[0][j] = E.x[0][j] - 4.0 * PI * steps.dt * J.x[0][j] + c * steps.dt * (B.z[0][j + 1] - B.z[0][j - 1]) / (2.0 * steps.dy);
+			E.y[0][j] = E.y[0][j] - 4.0 * PI * steps.dt * J.y[0][j] - c * steps.dt * (B.z[1][j] - B.z[m - 1][j]) / (2.0 * steps.dx);
+			E.z[0][j] = E.z[0][j] - 4.0 * PI * steps.dt * J.z[0][j] + c * steps.dt * ((B.y[1][j] - B.y[m - 1][j]) / (2.0 * steps.dx) - \
+				(B.x[0][j + 1] - B.x[0][j - 1]) / (2.0 * steps.dy));
+		}
+
+		for (int j = 1; j < n - 1; j++) { // i == m-1
+			E.x[m - 1][j] = E.x[m - 1][j] - 4.0 * PI * steps.dt * J.x[m - 1][j] + c * steps.dt * (B.z[m - 1][j + 1] - B.z[m - 1][j - 1]) / (2.0 * steps.dy);
+			E.y[m - 1][j] = E.y[m - 1][j] - 4.0 * PI * steps.dt * J.y[m - 1][j] - c * steps.dt * (B.z[0][j] - B.z[m - 2][j]) / (2.0 * steps.dx);
+			E.z[m - 1][j] = E.z[m - 1][j] - 4.0 * PI * steps.dt * J.z[m - 1][j] + c * steps.dt * ((B.y[0][j] - B.y[m - 2][j]) / (2.0 * steps.dx) - \
+				(B.x[m - 1][j + 1] - B.x[m - 1][j - 1]) / (2.0 * steps.dy));
+		}
+
+		return (*this);
+	}
+
+	elec_magn_field& get_boundary_conditions_B() {
+
+		for (int i = 0; i < m; i++) { // j == 0
+			B.x[i][0] = B.x[i][0] - c * steps.dt * (E.z[i][1] - E.z[i][n - 1]) / (2.0 * steps.dy);
+			if ((i != 0) && (i != m - 1)) {
+				B.y[i][0] = B.y[i][0] + c * steps.dt * (E.z[i + 1][0] - E.z[i - 1][0]) / (2.0 * steps.dx);
+				B.z[i][0] = B.z[i][0] - c * steps.dt * ((E.y[i + 1][0] - E.y[i - 1][0]) / (2.0 * steps.dx) - (E.x[i][1] - E.x[i][n - 1]) / (2.0 * steps.dy));
+			}
+			if (i == 0) {
+				B.y[i][0] = B.y[i][0] + c * steps.dt * (E.z[i + 1][0] - E.z[m - 1][0]) / (2.0 * steps.dx);
+				B.z[i][0] = B.z[i][0] - c * steps.dt * ((E.y[i + 1][0] - E.y[m - 1][0]) / (2.0 * steps.dx) - (E.x[i][1] - E.x[i][n - 1]) / (2.0 * steps.dy));
+			}
+			if (i == m - 1) {
+				B.y[i][0] = B.y[i][0] + c * steps.dt * (E.z[0][0] - E.z[i - 1][0]) / (2.0 * steps.dx);
+				B.z[i][0] = B.z[i][0] - c * steps.dt * ((E.y[0][0] - E.y[i - 1][0]) / (2.0 * steps.dx) - (E.x[i][1] - E.x[i][n - 1]) / (2.0 * steps.dy));
+			}
+		}
+
+		for (int i = 0; i < m; i++) { // j == n-1
+			B.x[i][n - 1] = B.x[i][n - 1] - c * steps.dt * (E.z[i][0] - E.z[i][n - 2]) / (2.0 * steps.dy);
+			if ((i != 0) && (i != m - 1)) {
+				B.y[i][n - 1] = B.y[i][n - 1] + c * steps.dt * (E.z[i + 1][n - 1] - E.z[i - 1][n - 1]) / (2.0 * steps.dx);
+				B.z[i][n - 1] = B.z[i][n - 1] - c * steps.dt * ((E.y[i + 1][n - 1] - E.y[i - 1][n - 1]) / (2.0 * steps.dx) - (E.x[i][0] - E.x[i][n - 2]) / (2.0 * steps.dy));
+			}
+			if (i == 0) {
+				B.y[i][n - 1] = B.y[i][n - 1] + c * steps.dt * (E.z[i + 1][n - 1] - E.z[m - 1][n - 1]) / (2.0 * steps.dx);
+				B.z[i][n - 1] = B.z[i][n - 1] - c * steps.dt * ((E.y[i + 1][n - 1] - E.y[m - 1][n - 1]) / (2.0 * steps.dx) - (E.x[i][0] - E.x[i][n - 2]) / (2.0 * steps.dy));
+			}
+			if (i == m - 1) {
+				B.y[i][n - 1] = B.y[i][n - 1] + c * steps.dt * (E.z[0][n - 1] - E.z[i - 1][n - 1]) / (2.0 * steps.dx);
+				B.z[i][n - 1] = B.z[i][n - 1] - c * steps.dt * ((E.y[0][n - 1] - E.y[i - 1][n - 1]) / (2.0 * steps.dx) - (E.x[i][0] - E.x[i][n - 2]) / (2.0 * steps.dy));
+			}
+		}
+
+		for (int j = 1; j < n - 1; j++) {  // i == 0
+			B.x[0][j] = B.x[0][j] - c * steps.dt * (E.z[0][j + 1] - E.z[0][j - 1]) / (2.0 * steps.dy);
+			B.y[0][j] = B.y[0][j] + c * steps.dt * (E.z[1][j] - E.z[m - 1][j]) / (2.0 * steps.dx);
+			B.z[0][j] = B.z[0][j] - c * steps.dt * ((E.y[1][j] - E.y[m - 1][j]) / (2.0 * steps.dx) - (E.x[0][j + 1] - E.x[0][j - 1]) / (2.0 * steps.dy));
+		}
+
+		for (int j = 1; j < n - 1; j++) { // i == m-1
+			B.x[m - 1][j] = B.x[m - 1][j] - c * steps.dt * (E.z[m - 1][j + 1] - E.z[m - 1][j - 1]) / (2.0 * steps.dy);
+			B.y[m - 1][j] = B.y[m - 1][j] + c * steps.dt * (E.z[0][j] - E.z[m - 2][j]) / (2.0 * steps.dx);
+			B.z[m - 1][j] = B.z[m - 1][j] - c * steps.dt * ((E.y[0][j] - E.y[m - 2][j]) / (2.0 * steps.dx) - (E.x[m - 1][j + 1] - E.x[m - 1][j - 1]) / (2.0 * steps.dy));
+		}
+
+		return (*this);
+	}
+
+    elec_magn_field& field_integrate() {
 		// интегрирование
 
-		/*// обновление E
+		// обновление E
 
 		   for (int i = 1; i < m - 1; i++)
 			   for (int j = 1; j < n - 1; j++) {
-				   E.x[i][j] = E.x[i][j] - 4.0 * PI * dt * J.x[i][j] + c * dt * (B.z[i][j + 1] - B.z[i][j - 1]) / (2.0 * dy);
-				   E.y[i][j] = E.y[i][j] - 4.0 * PI * dt * J.y[i][j] - c * dt * (B.z[i + 1][j] - B.z[i - 1][j]) / (2.0 * dx);
-				   E.z[i][j] = E.z[i][j] - 4.0 * PI * dt * J.z[i][j] + c * dt * ((B.y[i + 1][j] - B.y[i - 1][j]) / (2.0 * dx) - \
-					   (B.x[i][j + 1] - B.x[i][j - 1]) / (2.0 * dy));
+				   E.x[i][j] = E.x[i][j] - 4.0 * PI * steps.dt * J.x[i][j] + c * steps.dt * (B.z[i][j + 1] - B.z[i][j - 1]) / (2.0 * steps.dy);
+				   E.y[i][j] = E.y[i][j] - 4.0 * PI * steps.dt * J.y[i][j] - c * steps.dt * (B.z[i + 1][j] - B.z[i - 1][j]) / (2.0 * steps.dx);
+				   E.z[i][j] = E.z[i][j] - 4.0 * PI * steps.dt * J.z[i][j] + c * steps.dt * ((B.y[i + 1][j] - B.y[i - 1][j]) / (2.0 * steps.dx) - \
+					   (B.x[i][j + 1] - B.x[i][j - 1]) / (2.0 * steps.dy));
 			   }
 
-		   for (int i = 0; i < m; i++) { // j==0
-			   E.x[i][0] = E.x[i][0] - 4.0 * PI * dt * J.x[i][0] + c * dt * (B.z[i][1] - B.z[i][n - 1]) / (2.0 * dy);
-			   if ((i != 0) && (i != m - 1)) {
-				   E.y[i][0] = E.y[i][0] - 4.0 * PI * dt * J.y[i][0] - c * dt * (B.z[i + 1][0] - B.z[i - 1][0]) / (2.0 * dx);
-				   E.z[i][0] = E.z[i][0] - 4.0 * PI * dt * J.z[i][0] + c * dt * ((B.y[i + 1][0] - B.y[i - 1][0]) / (2.0 * dx) - \
-					   (B.x[i][1] - B.x[i][n - 1]) / (2.0 * dy));
-			   }
-			   if (i == 0) {
-				   E.y[i][0] = E.y[i][0] - 4.0 * PI * dt * J.y[i][0] - c * dt * (B.z[i + 1][0] - B.z[m - 1][0]) / (2.0 * dx);
-				   E.z[i][0] = E.z[i][0] - 4.0 * PI * dt * J.z[i][0] + c * dt * ((B.y[i + 1][0] - B.y[m - 1][0]) / (2.0 * dx) - \
-					   (B.x[i][1] - B.x[i][n - 1]) / (2.0 * dy));
-			   }
-			   if (i == m - 1) {
-				   E.y[i][0] = E.y[i][0] - 4.0 * PI * dt * J.y[i][0] - c * dt * (B.z[0][0] - B.z[i - 1][0]) / (2.0 * dx);
-				   E.z[i][0] = E.z[i][0] - 4.0 * PI * dt * J.z[i][0] + c * dt * ((B.y[0][0] - B.y[i - 1][0]) / (2.0 * dx) - \
-					   (B.x[i][1] - B.x[i][n - 1]) / (2.0 * dy));
-			   }
-		   }
+		   get_boundary_conditions_E();
 
-		   for (int i = 0; i < m; i++) { // j==ny-1
-			   E.x[i][n - 1] = E.x[i][n - 1] - 4.0 * PI * dt * J.x[i][n - 1] + c * dt * (B.z[i][0] - B.z[i][n - 2]) / (2.0 * dy);
-			   if ((i != 0) && (i != m - 1)) {
-				   E.y[i][n - 1] = E.y[i][n - 1] - 4.0 * PI * dt * J.y[i][n - 1] - c * dt * (B.z[i + 1][n - 1] - B.z[i - 1][n - 1]) / (2.0 * dx);
-				   E.z[i][n - 1] = E.z[i][n - 1] - 4.0 * PI * dt * J.z[i][n - 1] + c * dt * ((B.y[i + 1][n - 1] - B.y[i - 1][n - 1]) / (2.0 * dx) - \
-					   (B.x[i][0] - B.x[i][n - 2]) / (2.0 * dy));
-			   }
-			   if (i == 0) {
-				   E.y[i][n - 1] = E.y[i][n - 1] - 4.0 * PI * dt * J.y[i][n - 1] - c * dt * (B.z[i + 1][n - 1] - B.z[m - 1][n - 1]) / (2.0 * dx);
-				   E.z[i][n - 1] = E.z[i][n - 1] - 4.0 * PI * dt * J.z[i][n - 1] + c * dt * ((B.y[i + 1][n - 1] - B.y[m - 1][n - 1]) / (2.0 * dx) - \
-					   (B.x[i][0] - B.x[i][n - 2]) / (2.0 * dy));
-			   }
-			   if (i == m - 1) {
-				   E.y[i][n - 1] = E.y[i][n - 1] - 4.0 * PI * dt * J.y[i][n - 1] - c * dt * (B.z[0][n - 1] - B.z[i - 1][n - 1]) / (2.0 * dx);
-				   E.z[i][n - 1] = E.z[i][n - 1] - 4.0 * PI * dt * J.z[i][n - 1] + c * dt * ((B.y[0][n - 1] - B.y[i - 1][n - 1]) / (2.0 * dx) - \
-					   (B.x[i][0] - B.x[i][n - 2]) / (2.0 * dy));
-			   }
-		   }
-
-		   for (int j = 1; j < n - 1; j++) { // i==0
-			   E.x[0][j] = E.x[0][j] - 4.0 * PI * dt * J.x[0][j] + c * dt * (B.z[0][j + 1] - B.z[0][j - 1]) / (2.0 * dy);
-			   E.y[0][j] = E.y[0][j] - 4.0 * PI * dt * J.y[0][j] - c * dt * (B.z[1][j] - B.z[m - 1][j]) / (2.0 * dx);
-			   E.z[0][j] = E.z[0][j] - 4.0 * PI * dt * J.z[0][j] + c * dt * ((B.y[1][j] - B.y[m - 1][j]) / (2.0 * dx) - \
-				   (B.x[0][j + 1] - B.x[0][j - 1]) / (2.0 * dy));
-		   }
-
-		   for (int j = 1; j < n - 1; j++) { // i==nx-1
-			   E.x[m - 1][j] = E.x[m - 1][j] - 4.0 * PI * dt * J.x[m - 1][j] + c * dt * (B.z[m - 1][j + 1] - B.z[m - 1][j - 1]) / (2.0 * dy);
-			   E.y[m - 1][j] = E.y[m - 1][j] - 4.0 * PI * dt * J.y[m - 1][j] - c * dt * (B.z[0][j] - B.z[m - 2][j]) / (2.0 * dx);
-			   E.z[m - 1][j] = E.z[m - 1][j] - 4.0 * PI * dt * J.z[m - 1][j] + c * dt * ((B.y[0][j] - B.y[m - 2][j]) / (2.0 * dx) - \
-				   (B.x[m - 1][j + 1] - B.x[m - 1][j - 1]) / (2.0 * dy));
-		   }
-
-
+		   
 
 		   // обновление B
 
 		   for (int i = 1; i < m - 1; i++)
 			   for (int j = 1; j < n - 1; j++) {
-				   B.x[i][j] = B.x[i][j] - c * dt * (E.z[i][j + 1] - E.z[i][j - 1]) / (2.0 * dy);
-				   B.y[i][j] = B.y[i][j] + c * dt * (E.z[i + 1][j] - E.z[i - 1][j]) / (2.0 * dx);
-				   B.z[i][j] = B.z[i][j] - c * dt * ((E.y[i + 1][j] - E.y[i - 1][j]) / (2.0 * dx) - (E.x[i][j + 1] - E.x[i][j - 1]) / (2.0 * dy));
+				   B.x[i][j] = B.x[i][j] - c * steps.dt * (E.z[i][j + 1] - E.z[i][j - 1]) / (2.0 * steps.dy);
+				   B.y[i][j] = B.y[i][j] + c * steps.dt * (E.z[i + 1][j] - E.z[i - 1][j]) / (2.0 * steps.dx);
+				   B.z[i][j] = B.z[i][j] - c * steps.dt * ((E.y[i + 1][j] - E.y[i - 1][j]) / (2.0 * steps.dx) - (E.x[i][j + 1] - E.x[i][j - 1]) / (2.0 * steps.dy));
 			   }
 
-		   for (int i = 0; i < m; i++) { // j==0
-			   B.x[i][0] = B.x[i][0] - c * dt * (E.z[i][1] - E.z[i][n - 1]) / (2.0 * dy);
-			   if ((i != 0) && (i != m - 1)) {
-				   B.y[i][0] = B.y[i][0] + c * dt * (E.z[i + 1][0] - E.z[i - 1][0]) / (2.0 * dx);
-				   B.z[i][0] = B.z[i][0] - c * dt * ((E.y[i + 1][0] - E.y[i - 1][0]) / (2.0 * dx) - (E.x[i][1] - E.x[i][n - 1]) / (2.0 * dy));
-			   }
-			   if (i == 0) {
-				   B.y[i][0] = B.y[i][0] + c * dt * (E.z[i + 1][0] - E.z[m - 1][0]) / (2.0 * dx);
-				   B.z[i][0] = B.z[i][0] - c * dt * ((E.y[i + 1][0] - E.y[m - 1][0]) / (2.0 * dx) - (E.x[i][1] - E.x[i][n - 1]) / (2.0 * dy));
-			   }
-			   if (i == m - 1) {
-				   B.y[i][0] = B.y[i][0] + c * dt * (E.z[0][0] - E.z[i - 1][0]) / (2.0 * dx);
-				   B.z[i][0] = B.z[i][0] - c * dt * ((E.y[0][0] - E.y[i - 1][0]) / (2.0 * dx) - (E.x[i][1] - E.x[i][n - 1]) / (2.0 * dy));
-			   }
-		   }
+		   get_boundary_conditions_B();
 
-		   for (int i = 0; i < m; i++) { // j==ny-1
-			   B.x[i][n - 1] = B.x[i][n - 1] - c * dt * (E.z[i][0] - E.z[i][n - 2]) / (2.0 * dy);
-			   if ((i != 0) && (i != m - 1)) {
-				   B.y[i][n - 1] = B.y[i][n - 1] + c * dt * (E.z[i + 1][n - 1] - E.z[i - 1][n - 1]) / (2.0 * dx);
-				   B.z[i][n - 1] = B.z[i][n - 1] - c * dt * ((E.y[i + 1][n - 1] - E.y[i - 1][n - 1]) / (2.0 * dx) - (E.x[i][0] - E.x[i][n - 2]) / (2.0 * dy));
-			   }
-			   if (i == 0) {
-				   B.y[i][n - 1] = B.y[i][n - 1] + c * dt * (E.z[i + 1][n - 1] - E.z[m - 1][n - 1]) / (2.0 * dx);
-				   B.z[i][n - 1] = B.z[i][n - 1] - c * dt * ((E.y[i + 1][n - 1] - E.y[m - 1][n - 1]) / (2.0 * dx) - (E.x[i][0] - E.x[i][n - 2]) / (2.0 * dy));
-			   }
-			   if (i == m - 1) {
-				   B.y[i][n - 1] = B.y[i][n - 1] + c * dt * (E.z[0][n - 1] - E.z[i - 1][n - 1]) / (2.0 * dx);
-				   B.z[i][n - 1] = B.z[i][n - 1] - c * dt * ((E.y[0][n - 1] - E.y[i - 1][n - 1]) / (2.0 * dx) - (E.x[i][0] - E.x[i][n - 2]) / (2.0 * dy));
-			   }
-		   }
 
-		   for (int j = 1; j < n - 1; j++) {  // i==0
-			   B.x[0][j] = B.x[0][j] - c * dt * (E.z[0][j + 1] - E.z[0][j - 1]) / (2.0 * dy);
-			   B.y[0][j] = B.y[0][j] + c * dt * (E.z[1][j] - E.z[m - 1][j]) / (2.0 * dx);
-			   B.z[0][j] = B.z[0][j] - c * dt * ((E.y[1][j] - E.y[m - 1][j]) / (2.0 * dx) - (E.x[0][j + 1] - E.x[0][j - 1]) / (2.0 * dy));
-		   }
-
-		   for (int j = 1; j < n - 1; j++) { // i==nx-1
-			   B.x[m - 1][j] = B.x[m - 1][j] - c * dt * (E.z[m - 1][j + 1] - E.z[m - 1][j - 1]) / (2.0 * dy);
-			   B.y[m - 1][j] = B.y[m - 1][j] + c * dt * (E.z[0][j] - E.z[m - 2][j]) / (2.0 * dx);
-			   B.z[m - 1][j] = B.z[m - 1][j] - c * dt * ((E.y[0][j] - E.y[m - 2][j]) / (2.0 * dx) - (E.x[m - 1][j + 1] - E.x[m - 1][j - 1]) / (2.0 * dy));
-		   }*/
-
-		// обновление Ex
+		/*// обновление Ex
 
 		for (unsigned int i = 0; i < m; ++i) {
 			E.x[i][0] = E.x[i][0] - 4.0 * PI * dt * J.x[i][0] + c * dt * ((B.z[i][1] - B.z[i][n - 1]) / (2.0 * dy));
@@ -387,7 +412,7 @@ public:
 				//std::cout << "Bz[i][j]= " << B.z[i][j] << std::endl;
 				//std::cout << std::endl;
 
-			}
+			}*/
 		return (*this);
 	}
 };
