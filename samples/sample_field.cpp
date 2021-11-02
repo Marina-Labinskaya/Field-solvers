@@ -2,23 +2,23 @@
 
 double f(double x, double y = 0.0, double z = 0.0) {
 	estimated_area Area;
-	return double(sin(2 * PI * (x - Area.A) / (Area.B - Area.A)));
+	return double(sin(2 * PI * (x - Area.a) / (Area.b - Area.a)));
 }
 
 double f_real_solution(double t, double x, double y = 0.0, double z = 0.0) {
 	estimated_area Area;
-	return double(sin(2 * PI * (x - Area.A - c * t) / (Area.B - Area.A)));
+	return double(sin(2 * PI * (x - Area.a - c * t) / (Area.b - Area.a)));
 }
 
 
 double f2( double y, double x = 0.0, double z = 0.0) {
 	estimated_area Area;
-	return double(sin(2 * PI * (y - Area.C) / (Area.D - Area.C)));
+	return double(sin(2 * PI * (y - Area.a) / (Area.b - Area.a)));
 }
 
 double f_real_solution2(double t,  double y, double x = 0.0, double z = 0.0) {
 	estimated_area Area;
-	return double(sin(2 * PI * (y - Area.C - c * t) / (Area.D - Area.C)));
+	return double(sin(2 * PI * (y - Area.a - c * t) / (Area.b - Area.a)));
 }
 
 
@@ -52,46 +52,31 @@ int main()
 
 	// сферическая волна
 
-	std::ofstream fout("spherical_wave.txt");
-	const double t1 = 30.0;
+	std::ofstream fout("spherical_wave2.txt");
+	const double t1 = 100.0;
+	int kz = 0;
 
-	field_steps st{ c, c, c };
-	estimated_area ar{ (- n * c / 2), (n * c / 2 ), (- n * c / 2) , (n * c / 2) };
-	elec_magn_field F(st, ar);
-	int i = 0;
+	elec_magn_field F;
+	int i = 1;
 	int k = int(F.T / F.steps.dt);
-	for (double t = 0; t < t1; t += F.steps.dt) {
+
+
+	for (double t = F.steps.dt; t < t1; t += F.steps.dt) {
 		if (i <= k)
-			F.modify_Jz_center(i);
+			F.modify_Jz(i);
 		else {
-			F.set_zero_Jz_center();
+			F.set_zero_Jz();
 		}
 		F.FDTD();
 		++i;
 	}
 	for (int i = 0; i < F.nx; ++i) {
 		for (int j = 0; j < F.ny; ++j)
-			fout << F.E.z[i][j] << " ";
+			fout << F.E.z[i][j][F.nz / 2] << " ";
 		fout << std::endl;
 	}
 	
 	fout.close();
-
-	std::ofstream fout2("x.txt");
-	for (int i = 0; i < F.nx; ++i)
-	   for (int j = 0; j < F.ny; ++j) {
-			fout2 << F.area.A + i * F.steps.dx << " ";
-	}
-
-	fout2.close();
-
-	std::ofstream fout3("y.txt");
-	for (int i = 0; i < F.nx; ++i)
-		for (int j = 0; j < F.ny; ++j) {
-			fout3 << F.area.A + j * F.steps.dx << " ";
-		}
-
-	fout3.close();
 
 	return 0;
 }
