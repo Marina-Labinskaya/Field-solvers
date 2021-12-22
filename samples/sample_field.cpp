@@ -28,29 +28,31 @@ int main()
 
 	std::ofstream fout("spherical_wave2.txt");
 	const double t1 = 100.0;
-	int kz = 0;
 
 	elec_magn_field F;
 	int i = 1;
 	int k = int(F.T / F.steps.dt);
 
-	F.start_FDTD();
+	F.start_PSATD();
 
-	for (double t = F.steps.dt; t < t1; t += F.steps.dt) {
+	for (double t = F.steps.dt; t <= t1; t += F.steps.dt) {
 		if (i <= k)
 			F.modify_Jz(i);
 		else {
 			F.set_zero_Jz();
 		}
-		F.FDTD();
+		F.PSATD();
 		++i;
 	}
+
+	//F.E.z[0][0][F.nz / 2] = 0.0;
 	for (int i = 0; i < F.nx; ++i) {
 		for (int j = 0; j < F.ny; ++j)
 			fout << F.E.z[i][j][F.nz / 2] << " ";
 		fout << std::endl;
 	}
 	
+
 	fout.close();
 
 	return 0;
