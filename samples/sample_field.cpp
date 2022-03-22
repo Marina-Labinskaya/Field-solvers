@@ -31,31 +31,36 @@ int main()
 	std::cout << "Введите время t1: ";
 	std::cin >> t1;
 	std::cout << std::endl;
-	std::ofstream fout("spherical_wave2.txt");
+	std::ofstream fout("spherical_wave_modify_Jy.txt");
 	
 
 	elec_magn_field<> f;
 
 	int i = 1;
-	int k = int(f.T / f.steps.dt);
+	int _k = int(f.T / f.steps.dt);
 
 	for (double t = f.steps.dt; t <= t1; t += f.steps.dt) {
-		if (i <= k) {
-			f.modify_Jz(i);
+		if (i <= _k) {
+			f.modify_Jy(i);
 		}
 		else {
-			f.set_zero_Jz();
+			f.set_zero_Jy();
 		}
 		f.PSTD(t);
 		i++;
 	}
 
+	/*for (int j = 0; j < f.ny; ++j) {
+		for (int k = 0; k < f.nz; ++k)
+			fout << f.E.x(0, j, k) << " ";
+		fout << std::endl;
+	}*/
+	
 	for (int i = 0; i < f.nx; ++i) {
-		for (int j = 0; j < f.ny; ++j)
-			fout << f.E.z(i, j, 0) << " ";
+		for (int k = 0; k < f.nz; ++k)
+			fout << f.E.y(i, 0, k) << " ";
 		fout << std::endl;
 	}
-	
 
 	fout.close();
 	std::cout << "Вычисления выполнены";
