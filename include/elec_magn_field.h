@@ -8,7 +8,7 @@
 #include <fftw3_mkl.h>
 
 const double PI = 3.1415926536;
-const double c = 3e+10; // скорость света
+const double c = 3e+10;
 const int n = 100;
 
 
@@ -42,7 +42,7 @@ public:
 	}
 
 	T& operator() (int i, int j, int k) {
-		return data_arr[i* ny * nz + j * nz + k];
+		return data_arr[i * ny * nz + j * nz + k];
 	}
 
 	T operator() (int i, int j, int k) const {
@@ -66,8 +66,13 @@ struct field_characteristics {
 };
 
 struct estimated_area {
-	const double a = - n * c / 2; // начало сетки
-	const double b = n * c / 2; // конец сетки
+	const double ax;
+	const double bx;
+	const double ay;
+	const double by;
+	const double az;
+	const double bz;
+	estimated_area(double _ax, double _bx, double _ay, double _by, double _az, double _bz) : ax{ _ax }, bx{ _bx }, ay{ _ay }, by{ _by }, az{ _az }, bz{ _bz } {}
 };
 
 struct point {
@@ -77,10 +82,11 @@ struct point {
 };
 
 struct field_steps {
-	const double dx = c;
-	const double dy = c;
-	const double dz = c;
-	const double dt = 0.1;
+	const double dx;
+	const double dy;
+	const double dz;
+	const double dt;
+	field_steps(double _dx, double _dy, double _dz, double _dt) : dx{ _dx }, dy{ _dy }, dz{ _dz }, dt{ _dt } {}
 };
 
 template <typename T = double>
@@ -98,17 +104,14 @@ public:
 	const double Ty = 16 * c;
 	const double Tz = 16 * c;
 
-	// кол-во узлов в сетке
-	const int nx = int((area.b - area.a) / steps.dx);
-	//const int ny = int((area.b - area.a) / steps.dy);
-	const int nz = int((area.b - area.a) / steps.dz);
-	const int ny = 1;
-	const int size = nx * ny * nz;
+	const int nx;
+	const int ny;
+	const int nz;
+	const int size;
 
-	elec_magn_field() {
-
-		estimated_area area{};
-		field_steps steps{};
+	elec_magn_field(double _dt = 0.1, double _dx = c, double _dy = c, double _dz = c, double _ax = - n * c / 2, double _bx = n * c / 2, double _ay = - n * c / 2, double _by = n * c / 2,
+		double _az = -n * c / 2, double _bz = n * c / 2) : area{ _ax, _bx, _ay, _by, _az, _bz }, steps{ _dx, _dy, _dz, _dt }, nx{int((_bx - _ax)/_dx) + 1}, ny{ int((_by - _ay) / _dy) + 1 },
+		nz{ int((_bz - _az) / _dz) + 1}, size{nx * ny * nz} {
 
 		E.x.resize(nx, ny, nz);
 		E.y.resize(nx, ny, nz);
@@ -376,9 +379,6 @@ public:
 
 
 	elec_magn_field& FDTD(double t) {
-
-		// обновление B
-
 		for (int i = 0; i < nx - 1; i++)
 			for (int j = 0; j < ny - 1; j++)
 				for (int k = 0; k < nz - 1; k++) {
@@ -389,12 +389,10 @@ public:
 					B.z(i, j, k) = B.z(i, j, k) + c * steps.dt * ((E.x(i, j + 1, k) - E.x(i, j, k)) / (2.0 * steps.dy) - \
 						(E.y(i + 1, j, k) - E.y(i, j, k)) / (2.0 * steps.dx));
 				}
-		if (t != steps.dt)
+		if (t)
 			get_boundary_conditions_B(steps.dt);
 		else
 			get_boundary_conditions_B(steps.dt / 2);
-
-		// обновление E
 
 		for (int i = 1; i < nx; i++)
 			for (int j = 1; j < ny; j++)
@@ -416,16 +414,19 @@ public:
 		double t = steps.dt * (m - 0.5);
 		double z, y;
 		int x = 0;
-		//for (int i = 0; i < nx; ++i)
-		for (int j = 0; j < ny; ++j)
-			for (int k = 0; k < nz; ++k) {
-				z = area.a + k * steps.dz;
-				y = area.a + j * steps.dy;
-				// x = area.a + i * steps.dx;
-				if ((x >= -Tx / 4.0) && (x <= Tx / 4.0) && (y >= -Ty / 4.0) && (y <= Ty / 4.0) && (z >= -Tz / 4.0) && (z <= Tz / 4.0)) {
-					J.x(0, j, k) = sin(2 * PI * t / T) * pow(cos(2 * PI * x / Tx), 2) * pow(cos(2 * PI * y / Ty), 2) * pow(cos(2 * PI * z / Tz), 2);
+		for (int i = 0; i < nx; ++i) {
+			for (int j = 0; j < ny; ++j) {
+				for (int k = 0; k < nz; ++k) {
+					z = area.az + k * steps.dz;
+					y = area.ay + j * steps.dy;
+					if (nx > 1)
+						x = area.ax + i * steps.dx;
+					if ((x >= -Tx / 4.0) && (x <= Tx / 4.0) && (y >= -Ty / 4.0) && (y <= Ty / 4.0) && (z >= -Tz / 4.0) && (z <= Tz / 4.0)) {
+						J.x(0, j, k) = sin(2 * PI * t / T) * pow(cos(2 * PI * x / Tx), 2) * pow(cos(2 * PI * y / Ty), 2) * pow(cos(2 * PI * z / Tz), 2);
+					}
 				}
 			}
+		}
 		return (*this);
 	}
 
@@ -434,13 +435,15 @@ public:
 		double x, z;
 		int y = 0;
 		for (int i = 0; i < nx; ++i)
-			//for (int j = 0; j < ny; ++j) {
-			for (int k = 0; k < nz; ++k) {
-				x = area.a + i * steps.dx;
-				z = area.a + k * steps.dz;
-				// y = area.a + j * steps.dy;
-				if ((x >= -Tx / 4.0) && (x <= Tx / 4.0) && (y >= -Ty / 4.0) && (y <= Ty / 4.0) && (z >= -Tz / 4.0) && (z <= Tz / 4.0)) {
-					J.y(i, 0, k) = sin(2 * PI * t / T) * pow(cos(2 * PI * x / Tx), 2) * pow(cos(2 * PI * y / Ty), 2) * pow(cos(2 * PI * z / Tz), 2);
+			for (int j = 0; j < ny; ++j) {
+				for (int k = 0; k < nz; ++k) {
+					x = area.ax + i * steps.dx;
+					z = area.az + k * steps.dz;
+					if (ny > 1)
+						y = area.ay + j * steps.dy;
+					if ((x >= -Tx / 4.0) && (x <= Tx / 4.0) && (y >= -Ty / 4.0) && (y <= Ty / 4.0) && (z >= -Tz / 4.0) && (z <= Tz / 4.0)) {
+						J.y(i, 0, k) = sin(2 * PI * t / T) * pow(cos(2 * PI * x / Tx), 2) * pow(cos(2 * PI * y / Ty), 2) * pow(cos(2 * PI * z / Tz), 2);
+					}
 				}
 			}
 		return (*this);
@@ -452,12 +455,14 @@ public:
 		int z = 0;
 		for (int i = 0; i < nx; ++i)
 			for (int j = 0; j < ny; ++j) {
-				//for (int k = 0; k < nz; ++k) {
-				x = area.a + i * steps.dx;
-				y = area.a + j * steps.dy;
-				// z = area.a + k * steps.dz;
-				if ((x >= -Tx / 4.0) && (x <= Tx / 4.0) && (y >= -Ty / 4.0) && (y <= Ty / 4.0) && (z >= -Tz / 4.0) && (z <= Tz / 4.0)) {
-					J.z(i, j, 0) = sin(2 * PI * t / T) * pow(cos(2 * PI * x / Tx), 2) * pow(cos(2 * PI * y / Ty), 2) * pow(cos(2 * PI * z / Tz), 2);
+				for (int k = 0; k < nz; ++k) {
+					x = area.ax + i * steps.dx;
+					y = area.ay + j * steps.dy;
+					if (nz > 1)
+						z = area.az + k * steps.dz;
+					if ((x >= -Tx / 4.0) && (x <= Tx / 4.0) && (y >= -Ty / 4.0) && (y <= Ty / 4.0) && (z >= -Tz / 4.0) && (z <= Tz / 4.0)) {
+						J.z(i, j, 0) = sin(2 * PI * t / T) * pow(cos(2 * PI * x / Tx), 2) * pow(cos(2 * PI * y / Ty), 2) * pow(cos(2 * PI * z / Tz), 2);
+					}
 				}
 			}
 		return (*this);
@@ -490,17 +495,38 @@ public:
 	point w(int i, int j, int k) {
 		point res;
 		if (i <= nx / 2)
-			res.x = (2 * PI * i / (area.b - area.a));
+			res.x = (2 * PI * i / (area.bx - area.ax));
 		else
-			res.x = (2 * PI * (i - nx) / (area.b - area.a));
+			res.x = (2 * PI * (i - nx) / (area.bx - area.ax));
 		if (j <= ny / 2)
-			res.y = (2 * PI * j / (area.b - area.a));
+			res.y = (2 * PI * j / (area.by - area.ay));
 		else
-			res.y = (2 * PI * (j - ny) / (area.b - area.a));
+			res.y = (2 * PI * (j - ny) / (area.by - area.ay));
 		if (k <= nz / 2)
-			res.z = (2 * PI * k / (area.b - area.a));
+			res.z = (2 * PI * k / (area.bz - area.az));
 		else
-			res.z = (2 * PI * (k - nz) / (area.b - area.a));
+			res.z = (2 * PI * (k - nz) / (area.bz - area.az));
+
+		return res;
+	}
+
+	double k_vec_len(int i, int j, int k) {
+		return sqrt(w(i, j, k).x * w(i, j, k).x + w(i, j, k).y * w(i, j, k).y + w(i, j, k).z * w(i, j, k).z);
+	}
+
+	point k_norm(int i, int j, int k) {
+		point res;
+		if (i != 0 && j != 0 && k != 0) {
+			res.x = w(i, j, k).x / k_vec_len(i, j, k);
+			res.y = w(i, j, k).y / k_vec_len(i, j, k);
+			res.z = w(i, j, k).z / k_vec_len(i, j, k);
+		}
+		else
+		{
+			res.x = 0.0;
+			res.y = 0.0;
+			res.z = 0.0;
+		}
 
 		return res;
 	}
@@ -547,7 +573,7 @@ public:
 			for (int _j = 0; _j < ny; _j++) {
 				for (int _k = 0; _k < nz / 2 + 1; _k++) {
 
-				if (t == steps.dt)
+				if (t == 0)
 					dt_B = steps.dt / 2;
 
 				Bx_out(_i, _j, _k).real(Bx_out(_i, _j, _k).real() + c * dt_B * (w(_i, _j, _k).y * Ez_out(_i, _j, _k).imag() - w(_i, _j, _k).z * Ey_out(_i, _j, _k).imag()));
@@ -630,206 +656,194 @@ public:
 		return (*this);
 	}
 
-	//elec_magn_field& PSATD() {
-	//	// обновление B
-	//	for (int i = 0; i < nx; i++)
-	//		for (int j = 0; j < ny; j++)
-	//			{
-	//				fftw_complex *B_x_out;
-	//				fftw_complex *B_y_out;
-	//				fftw_complex *B_z_out;
-	//				fftw_complex *E_x_out;
-	//				fftw_complex *E_y_out;
-	//				fftw_complex *E_z_out;
-	//				fftw_complex *J_x_out;
-	//				fftw_complex *J_y_out;
-	//				fftw_complex *J_z_out;
-	//				B_x_out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * nz);
-	//				B_y_out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * nz);
-	//				B_z_out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * nz);
-	//				E_x_out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * nz);
-	//				E_y_out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * nz);
-	//				E_z_out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * nz);
-	//				J_x_out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * nz);
-	//				J_y_out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * nz);
-	//				J_z_out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * nz);
-	//				fftw_plan p;
-	//				p = fftw_plan_dft_r2c_1d(nz, B.x[i][j].data(), B_x_out, FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_r2c_1d(nz, B.y[i][j].data(), B_y_out, FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_r2c_1d(nz, B.z[i][j].data(), B_z_out, FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_r2c_1d(nz, E.x[i][j].data(), E_x_out, FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_r2c_1d(nz, E.y[i][j].data(), E_y_out, FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_r2c_1d(nz, E.z[i][j].data(), E_z_out, FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_r2c_1d(nz, J.x[i][j].data(), J_x_out, FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_r2c_1d(nz, J.y[i][j].data(), J_y_out, FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_r2c_1d(nz, J.z[i][j].data(), J_z_out, FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				for (int k = 0; k < nz; k++) {
-	//					double C = std::cos(K(i, j, k) * c * steps.dt / 2.0);
-	//					double S = std::sin(K(i, j, k) * c * steps.dt / 2.0);
-	//					/*B_x_out[0][0] = C * B_x_out[0][0] + S * vect_mult_K(i, j, k, E_x_out[0][1], E_y_out[0][1], \
-	//						E_z_out[0][1]).x - 4 * PI * (1 - C) / (K(i, j, k) * c) * vect_mult_K(i, j, k, J_x_out[0][1], J_y_out[0][1], \
-	//							J_z_out[0][1]).x;
-	//					B_x_out[0][1] = C * B_x_out[0][1] - S * vect_mult_K(i, j, k, E_x_out[0][0], E_y_out[0][0], \
-	//						E_z_out[0][0]).x + 4 * PI * (1 - C) / (K(i, j, k) * c) * vect_mult_K(i, j, k, J_x_out[0][0], J_y_out[0][0], \
-	//							J_z_out[0][0]).x;
-	//					B_y_out[0][0] = C * B_y_out[0][0] + S * vect_mult_K(i, j, k, E_x_out[0][1], E_y_out[0][1], \
-	//						E_z_out[0][1]).y - 4 * PI * (1 - C) / (K(i, j, k) * c) * vect_mult_K(i, j, k, J_x_out[0][1], J_y_out[0][1], \
-	//							J_z_out[0][1]).y;
-	//					B_y_out[0][1] = C * B_y_out[0][1] - S * vect_mult_K(i, j, k, E_x_out[0][0], E_y_out[0][0], \
-	//						E_z_out[0][0]).y + 4 * PI * (1 - C) / (K(i, j, k) * c) * vect_mult_K(i, j, k, J_x_out[0][0], J_y_out[0][0], \
-	//							J_z_out[0][0]).y;
-	//					B_z_out[0][0] = C * B_z_out[0][0] + S * vect_mult_K(i, j, k, E_x_out[0][1], E_y_out[0][1], \
-	//						E_z_out[0][1]).z - 4 * PI * (1 - C) / (K(i, j, k) * c) * vect_mult_K(i, j, k, J_x_out[0][1], J_y_out[0][1], \
-	//							J_z_out[0][1]).z;
-	//					B_z_out[0][1] = C * B_z_out[0][1] - S * vect_mult_K(i, j, k, E_x_out[0][0], E_y_out[0][0], \
-	//						E_z_out[0][0]).z + 4 * PI * (1 - C) / (K(i, j, k) * c) * vect_mult_K(i, j, k, J_x_out[0][0], J_y_out[0][0], \
-	//							J_z_out[0][0]).z;*/
-	//							// PSTD
-	//					B_x_out[0][0] = B_x_out[0][0] + c * steps.dt * vect_mult_K(i, j, k, E_x_out[0][1], E_y_out[0][1], E_z_out[0][1]).x;
-	//					B_x_out[0][1] = B_x_out[0][1] - c * steps.dt * vect_mult_K(i, j, k, E_x_out[0][0], E_y_out[0][0], E_z_out[0][0]).x;
-	//					B_y_out[0][0] = B_y_out[0][0] + c * steps.dt * vect_mult_K(i, j, k, E_x_out[0][1], E_y_out[0][1], E_z_out[0][1]).y;
-	//					B_y_out[0][1] = B_y_out[0][1] - c * steps.dt * vect_mult_K(i, j, k, E_x_out[0][0], E_y_out[0][0], E_z_out[0][0]).y;
-	//					B_z_out[0][0] = B_z_out[0][0] + c * steps.dt * vect_mult_K(i, j, k, E_x_out[0][1], E_y_out[0][1], E_z_out[0][1]).z;
-	//					B_z_out[0][1] = B_z_out[0][1] - c * steps.dt * vect_mult_K(i, j, k, E_x_out[0][0], E_y_out[0][0], E_z_out[0][0]).z;
-	//				}
-	//				p = fftw_plan_dft_c2r_1d(nz, B_x_out, B.x[i][j].data(), FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_c2r_1d(nz, B_y_out, B.y[i][j].data(), FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_c2r_1d(nz, B_z_out, B.z[i][j].data(), FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_c2r_1d(nz, E_x_out, E.x[i][j].data(), FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_c2r_1d(nz, E_y_out, E.y[i][j].data(), FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_c2r_1d(nz, E_z_out, E.z[i][j].data(), FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				fftw_destroy_plan(p);
-	//				fftw_free(E_x_out);
-	//				fftw_free(E_y_out);
-	//				fftw_free(E_z_out);
-	//				fftw_free(B_x_out);
-	//				fftw_free(B_y_out);
-	//				fftw_free(B_z_out);
-	//				fftw_free(J_x_out);
-	//				fftw_free(J_y_out);
-	//				fftw_free(J_z_out);
-	//			}
-	//	// обновление E
-	//	for (int i = 0; i < nx; i++)
-	//		for (int j = 0; j < ny; j++)
-	//			{
-	//				fftw_complex *B_x_out;
-	//				fftw_complex *B_y_out;
-	//				fftw_complex *B_z_out;
-	//				fftw_complex *E_x_out;
-	//				fftw_complex *E_y_out;
-	//				fftw_complex *E_z_out;
-	//				fftw_complex *J_x_out;
-	//				fftw_complex *J_y_out;
-	//				fftw_complex *J_z_out;
-	//				B_x_out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * nz);
-	//				B_y_out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * nz);
-	//				B_z_out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * nz);
-	//				E_x_out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * nz);
-	//				E_y_out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * nz);
-	//				E_z_out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * nz);
-	//				J_x_out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * nz);
-	//				J_y_out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * nz);
-	//				J_z_out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * nz);
-	//				fftw_plan p;
-	//				p = fftw_plan_dft_r2c_1d(nz, B.x[i][j].data(), B_x_out, FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_r2c_1d(nz, B.y[i][j].data(), B_y_out, FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_r2c_1d(nz, B.z[i][j].data(), B_z_out, FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_r2c_1d(nz, E.x[i][j].data(), E_x_out, FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_r2c_1d(nz, E.y[i][j].data(), E_y_out, FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_r2c_1d(nz, E.z[i][j].data(), E_z_out, FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_r2c_1d(nz, J.x[i][j].data(), J_x_out, FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_r2c_1d(nz, J.y[i][j].data(), J_y_out, FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_r2c_1d(nz, J.z[i][j].data(), J_z_out, FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				for (int k = 0; k < nz; k++) {
-	//					double C = std::cos(K(i, j, k) * c * steps.dt / 2.0);
-	//					double S = std::sin(K(i, j, k) * c * steps.dt / 2.0);
-	//					/*E_x_out[0][0] = C * E_x_out[0][0] - S * vect_mult_K(i, j, k, B_x_out[0][1], B_y_out[0][1], \
-	//						B_z_out[0][1]).x - 4 * PI * S / (K(i, j, k) * c) * J_x_out[0][0] + (1 - C) * K_norm(i, j, k).x * scalar_mult_K(i, j, k, \
-	//							E_x_out[0][0], E_y_out[0][0], E_z_out[0][0]) + 4 * PI * K_norm(i, j, k).x * scalar_mult_K(i, j, k, \
-	//								J_x_out[0][0], J_y_out[0][0], J_z_out[0][0]) * (S / (K(i, j, k) * c) - steps.dt);
-	//					E_x_out[0][1] = C * E_x_out[0][1] + S * vect_mult_K(i, j, k, B_x_out[0][0], B_y_out[0][0], \
-	//						B_z_out[0][0]).x - 4 * PI * S / (K(i, j, k) * c) * J_x_out[0][1] + (1 - C) * K_norm(i, j, k).x * scalar_mult_K(i, j, k, \
-	//							E_x_out[0][1], E_y_out[0][1], E_z_out[0][1]) + 4 * PI * K_norm(i, j, k).x * scalar_mult_K(i, j, k, \
-	//								J_x_out[0][1], J_y_out[0][1], J_z_out[0][1]) * (S / (K(i, j, k) * c) - steps.dt);
-	//					E_y_out[0][0] = C * E_y_out[0][0] - S * vect_mult_K(i, j, k, B_x_out[0][1], B_y_out[0][1], \
-	//						B_z_out[0][1]).y - 4 * PI * S / (K(i, j, k) * c) * J_y_out[0][0] + (1 - C) * K_norm(i, j, k).y * scalar_mult_K(i, j, k, \
-	//							E_x_out[0][0], E_y_out[0][0], E_z_out[0][0]) + 4 * PI * K_norm(i, j, k).y * scalar_mult_K(i, j, k, \
-	//								J_x_out[0][0], J_y_out[0][0], J_z_out[0][0]) * (S / (K(i, j, k) * c) - steps.dt);
-	//					E_y_out[0][1] = C * E_y_out[0][1] + S * vect_mult_K(i, j, k, B_x_out[0][0], B_y_out[0][0], \
-	//						B_z_out[0][0]).y - 4 * PI * S / (K(i, j, k) * c) * J_y_out[0][1] + (1 - C) * K_norm(i, j, k).y * scalar_mult_K(i, j, k, \
-	//							E_x_out[0][1], E_y_out[0][1], E_z_out[0][1]) + 4 * PI * K_norm(i, j, k).y * scalar_mult_K(i, j, k, \
-	//								J_x_out[0][1], J_y_out[0][1], J_z_out[0][1]) * (S / (K(i, j, k) * c) - steps.dt);
-	//					E_z_out[0][0] = C * E_z_out[0][0] - S * vect_mult_K(i, j, k, B_x_out[0][1], B_y_out[0][1], \
-	//						B_z_out[0][1]).z - 4 * PI * S / (K(i, j, k) * c) * J_z_out[0][0] + (1 - C) * K_norm(i, j, k).z * scalar_mult_K(i, j, k, \
-	//							E_x_out[0][0], E_y_out[0][0], E_z_out[0][0]) + 4 * PI * K_norm(i, j, k).z * scalar_mult_K(i, j, k, \
-	//								J_x_out[0][0], J_y_out[0][0], J_z_out[0][0]) * (S / (K(i, j, k) * c) - steps.dt);
-	//					E_z_out[0][1] = C * E_z_out[0][1] + S * vect_mult_K(i, j, k, B_x_out[0][0], B_y_out[0][0], \
-	//						B_z_out[0][0]).x - 4 * PI * S / (K(i, j, k) * c) * J_z_out[0][1] + (1 - C) * K_norm(i, j, k).z * scalar_mult_K(i, j, k, \
-	//							E_x_out[0][1], E_y_out[0][1], E_z_out[0][1]) + 4 * PI * K_norm(i, j, k).z * scalar_mult_K(i, j, k, \
-	//								J_x_out[0][1], J_y_out[0][1], J_z_out[0][1]) * (S / (K(i, j, k) * c) - steps.dt);
-	//*/
-	//// PSTD
-	//					E_x_out[k][0] = E_x_out[k][0] - c * steps.dt * vect_mult_K(i, j, k, B_x_out[k][1], B_y_out[k][1], \
-	//						B_z_out[k][1]).x - 4 * PI * steps.dt * J_x_out[k][0];
-	//					E_x_out[k][1] = E_x_out[k][1] + c * steps.dt * vect_mult_K(i, j, k, B_x_out[k][0], B_y_out[k][0], \
-	//						B_z_out[k][0]).x - 4 * PI * steps.dt * J_x_out[k][1];
-	//					E_y_out[k][0] = E_y_out[k][0] - c * steps.dt * vect_mult_K(i, j, k, B_x_out[k][1], B_y_out[k][1], \
-	//						B_z_out[k][1]).y - 4 * PI * steps.dt * J_y_out[k][0];
-	//					E_y_out[k][1] = E_y_out[k][1] + c * steps.dt * vect_mult_K(i, j, k, B_x_out[k][0], B_y_out[k][0], \
-	//						B_z_out[k][0]).y - 4 * PI * steps.dt * J_y_out[k][1];
-	//					E_z_out[k][0] = E_z_out[k][0] - c * steps.dt * vect_mult_K(i, j, k, B_x_out[k][1], B_y_out[k][1], \
-	//						B_z_out[k][1]).z - 4 * PI * steps.dt * J_z_out[k][0];
-	//					E_z_out[k][1] = E_z_out[k][1] + c * steps.dt * vect_mult_K(i, j, k, B_x_out[k][0], B_y_out[k][0], \
-	//						B_z_out[k][0]).x - 4 * PI * steps.dt * J_z_out[k][1];
-	//				}
-	//				p = fftw_plan_dft_c2r_1d(nz, B_x_out, B.x[i][j].data(), FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_c2r_1d(nz, B_y_out, B.y[i][j].data(), FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_c2r_1d(nz, B_z_out, B.z[i][j].data(), FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_c2r_1d(nz, E_x_out, E.x[i][j].data(), FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_c2r_1d(nz, E_y_out, E.y[i][j].data(), FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				p = fftw_plan_dft_c2r_1d(nz, E_z_out, E.z[i][j].data(), FFTW_ESTIMATE);
-	//				fftw_execute(p);
-	//				fftw_destroy_plan(p);
-	//				fftw_free(E_x_out);
-	//				fftw_free(E_y_out);
-	//				fftw_free(E_z_out);
-	//				fftw_free(B_x_out);
-	//				fftw_free(B_y_out);
-	//				fftw_free(B_z_out);
-	//				fftw_free(J_x_out);
-	//				fftw_free(J_y_out);
-	//				fftw_free(J_z_out);
-	//			}
-	//	return (*this);
-	//}
+	elec_magn_field& PSATD(double t) {
+		Array<std::complex<double>> Bx_out(nx, ny, nz / 2 + 1);
+		Array<std::complex<double>> By_out(nx, ny, nz / 2 + 1);
+		Array<std::complex<double>> Bz_out(nx, ny, nz / 2 + 1);
+		Array<std::complex<double>> Ex_out(nx, ny, nz / 2 + 1);
+		Array<std::complex<double>> Ey_out(nx, ny, nz / 2 + 1);
+		Array<std::complex<double>> Ez_out(nx, ny, nz / 2 + 1);
+		Array<std::complex<double>> Jx_out(nx, ny, nz / 2 + 1);
+		Array<std::complex<double>> Jy_out(nx, ny, nz / 2 + 1);
+		Array<std::complex<double>> Jz_out(nx, ny, nz / 2 + 1);
+
+		fftw_plan Ex_plan, Ey_plan, Ez_plan, Bx_plan, By_plan, Bz_plan, Jx_plan, Jy_plan, Jz_plan;
+		fftw_plan _Ex_plan, _Ey_plan, _Ez_plan, _Bx_plan, _By_plan, _Bz_plan, _Jx_plan, _Jy_plan, _Jz_plan;
+
+		Ex_plan = fftw_plan_dft_r2c_3d(nx, ny, nz, E.x.data(), (fftw_complex *)(Ex_out.data()), FFTW_ESTIMATE);
+		Ey_plan = fftw_plan_dft_r2c_3d(nx, ny, nz, E.y.data(), (fftw_complex *)(Ey_out.data()), FFTW_ESTIMATE);
+		Ez_plan = fftw_plan_dft_r2c_3d(nx, ny, nz, E.z.data(), (fftw_complex *)(Ez_out.data()), FFTW_ESTIMATE);
+		Bx_plan = fftw_plan_dft_r2c_3d(nx, ny, nz, B.x.data(), (fftw_complex *)(Bx_out.data()), FFTW_ESTIMATE);
+		By_plan = fftw_plan_dft_r2c_3d(nx, ny, nz, B.y.data(), (fftw_complex *)(By_out.data()), FFTW_ESTIMATE);
+		Bz_plan = fftw_plan_dft_r2c_3d(nx, ny, nz, B.z.data(), (fftw_complex *)(Bz_out.data()), FFTW_ESTIMATE);
+		Jx_plan = fftw_plan_dft_r2c_3d(nx, ny, nz, J.x.data(), (fftw_complex *)(Jx_out.data()), FFTW_ESTIMATE);
+		Jy_plan = fftw_plan_dft_r2c_3d(nx, ny, nz, J.y.data(), (fftw_complex *)(Jy_out.data()), FFTW_ESTIMATE);
+		Jz_plan = fftw_plan_dft_r2c_3d(nx, ny, nz, J.z.data(), (fftw_complex *)(Jz_out.data()), FFTW_ESTIMATE);
+
+		fftw_execute(Ex_plan);
+		fftw_execute(Ey_plan);
+		fftw_execute(Ez_plan);
+		fftw_execute(Bx_plan);
+		fftw_execute(By_plan);
+		fftw_execute(Bz_plan);
+		fftw_execute(Jx_plan);
+		fftw_execute(Jy_plan);
+		fftw_execute(Jz_plan);
+
+		double dt_E = steps.dt;
+		double dt_B = steps.dt;
+		std::complex<double> I(0.0, 1.0);
+
+		for (int _i = 0; _i < nx; _i++) {
+			for (int _j = 0; _j < ny; _j++) {
+				for (int _k = 0; _k < nz / 2 + 1; _k++) {
+					if (t == 0)
+						dt_B = steps.dt / 2.0;
+
+					double C_B = cos(k_vec_len(_i, _j, _k) * c * dt_B / 2.0);
+					double S_B = sin(k_vec_len(_i, _j, _k) * c * dt_B / 2.0);
+					double C_E = cos(k_vec_len(_i, _j, _k) * c * dt_E / 2.0);
+					double S_E = sin(k_vec_len(_i, _j, _k) * c * dt_E / 2.0);
+
+					if (!(_i == 0 && _j == 0 && _k == 0)) {
+
+						/*Bx_out(_i, _j, _k).real(C_B * Bx_out(_i, _j, _k).real() + S_B * (k_norm(_i, _j, _k).y * Ez_out(_i, _j, _k).imag() - Ey_out(_i, _j, _k).imag() * k_norm(_i, _j, _k).z) \
+							- 4 * PI * (1 - C_B) / (k_vec_len(_i, _j, _k) * c) * (k_norm(_i, _j, _k).y * Jz_out(_i, _j, _k).imag() - Jy_out(_i, _j, _k).imag() * k_norm(_i, _j, _k).z));
+
+						Bx_out(_i, _j, _k).imag(C_B * Bx_out(_i, _j, _k).imag() - S_B * (k_norm(_i, _j, _k).y * Ez_out(_i, _j, _k).real() - Ey_out(_i, _j, _k).real() * k_norm(_i, _j, _k).z) \
+							+ 4 * PI * (1 - C_B) / (k_vec_len(_i, _j, _k) * c) * (k_norm(_i, _j, _k).y * Jz_out(_i, _j, _k).real() - Jy_out(_i, _j, _k).real() * k_norm(_i, _j, _k).z));
+
+						By_out(_i, _j, _k).real(C_B * By_out(_i, _j, _k).real() - S_B * (k_norm(_i, _j, _k).x * Ez_out(_i, _j, _k).imag() - Ex_out(_i, _j, _k).imag() * k_norm(_i, _j, _k).z) \
+							+ 4 * PI * (1 - C_B) / (k_vec_len(_i, _j, _k) * c) * (k_norm(_i, _j, _k).x * Jz_out(_i, _j, _k).imag() - Jx_out(_i, _j, _k).imag() * k_norm(_i, _j, _k).z));
+
+						By_out(_i, _j, _k).imag(C_B * By_out(_i, _j, _k).imag() + S_B * (k_norm(_i, _j, _k).x * Ez_out(_i, _j, _k).real() - Ex_out(_i, _j, _k).real() * k_norm(_i, _j, _k).z) \
+							- 4 * PI * (1 - C_B) / (k_vec_len(_i, _j, _k) * c) * (k_norm(_i, _j, _k).x * Jz_out(_i, _j, _k).real() - Jx_out(_i, _j, _k).real() * k_norm(_i, _j, _k).z));
+
+						Bz_out(_i, _j, _k).real(C_B * Bz_out(_i, _j, _k).real() + S_B * (k_norm(_i, _j, _k).x * Ey_out(_i, _j, _k).imag() - Ex_out(_i, _j, _k).imag() * k_norm(_i, _j, _k).y) \
+							- 4 * PI * (1 - C_B) / (k_vec_len(_i, _j, _k) * c) * (k_norm(_i, _j, _k).x * Jy_out(_i, _j, _k).imag() - Jx_out(_i, _j, _k).imag() * k_norm(_i, _j, _k).y));
+
+						Bz_out(_i, _j, _k).imag(C_B * Bz_out(_i, _j, _k).imag() - S_B * (k_norm(_i, _j, _k).x * Ey_out(_i, _j, _k).real() - Ex_out(_i, _j, _k).real() * k_norm(_i, _j, _k).y) \
+							+ 4 * PI * (1 - C_B) / (k_vec_len(_i, _j, _k) * c) * (k_norm(_i, _j, _k).x * Jy_out(_i, _j, _k).real() - Jx_out(_i, _j, _k).real() * k_norm(_i, _j, _k).y));
+
+						Ex_out(_i, _j, _k).real(C_E * Ex_out(_i, _j, _k).real() - S_E * (k_norm(_i, _j, _k).y * Bz_out(_i, _j, _k).imag() - By_out(_i, _j, _k).imag() * k_norm(_i, _j, _k).z) \
+							- 4 * PI * S_E / (k_vec_len(_i, _j, _k) * c) * Jx_out(_i, _j, _k).real() + (1 - C_E) * k_norm(_i, _j, _k).x * (k_norm(_i, _j, _k).x * Ex_out(_i, _j, _k).real() \
+								+ k_norm(_i, _j, _k).y * Ey_out(_i, _j, _k).real() + k_norm(_i, _j, _k).z * Ez_out(_i, _j, _k).real()) + 4 * PI * k_norm(_i, _j, _k).x * \
+								(S_E / (k_vec_len(_i, _j, _k) * c) - steps.dt) * (k_norm(_i, _j, _k).x * Jx_out(_i, _j, _k).real() + k_norm(_i, _j, _k).y * Jy_out(_i, _j, _k).real() + \
+									k_norm(_i, _j, _k).z * Jz_out(_i, _j, _k).real()));
+
+						Ex_out(_i, _j, _k).imag(C_E * Ex_out(_i, _j, _k).imag() + S_E * (k_norm(_i, _j, _k).y * Bz_out(_i, _j, _k).real() - By_out(_i, _j, _k).real() * k_norm(_i, _j, _k).z) \
+							- 4 * PI * S_E / (k_vec_len(_i, _j, _k) * c) * Jx_out(_i, _j, _k).imag() + (1 - C_E) * k_norm(_i, _j, _k).x * (k_norm(_i, _j, _k).x * Ex_out(_i, _j, _k).imag() \
+								+ k_norm(_i, _j, _k).y * Ey_out(_i, _j, _k).imag() + k_norm(_i, _j, _k).z * Ez_out(_i, _j, _k).imag()) + 4 * PI * k_norm(_i, _j, _k).x * \
+								(S_E / (k_vec_len(_i, _j, _k) * c) - steps.dt) * (k_norm(_i, _j, _k).x * Jx_out(_i, _j, _k).imag() + k_norm(_i, _j, _k).y * Jy_out(_i, _j, _k).imag() + \
+									k_norm(_i, _j, _k).z * Jz_out(_i, _j, _k).imag()));
+
+						Ey_out(_i, _j, _k).real(C_E * Ey_out(_i, _j, _k).real() + S_E * (k_norm(_i, _j, _k).x * Bz_out(_i, _j, _k).imag() - Bx_out(_i, _j, _k).imag() * k_norm(_i, _j, _k).z) \
+							- 4 * PI * S_E / (k_vec_len(_i, _j, _k) * c) * Jy_out(_i, _j, _k).real() + (1 - C_E) * k_norm(_i, _j, _k).y * (k_norm(_i, _j, _k).x * Ex_out(_i, _j, _k).real() \
+								+ k_norm(_i, _j, _k).y * Ey_out(_i, _j, _k).real() + k_norm(_i, _j, _k).z * Ez_out(_i, _j, _k).real()) + 4 * PI * k_norm(_i, _j, _k).y * \
+								(S_E / (k_vec_len(_i, _j, _k) * c) - steps.dt) * (k_norm(_i, _j, _k).x * Jx_out(_i, _j, _k).real() + k_norm(_i, _j, _k).y * Jy_out(_i, _j, _k).real() + \
+									k_norm(_i, _j, _k).z * Jz_out(_i, _j, _k).real()));
+
+						Ey_out(_i, _j, _k).imag(C_E * Ey_out(_i, _j, _k).imag() - S_E * (k_norm(_i, _j, _k).x * Bz_out(_i, _j, _k).real() - Bx_out(_i, _j, _k).real() * k_norm(_i, _j, _k).z) \
+							- 4 * PI * S_E / (k_vec_len(_i, _j, _k) * c) * Jy_out(_i, _j, _k).imag() + (1 - C_E) * k_norm(_i, _j, _k).y * (k_norm(_i, _j, _k).x * Ex_out(_i, _j, _k).imag() \
+								+ k_norm(_i, _j, _k).y * Ey_out(_i, _j, _k).imag() + k_norm(_i, _j, _k).z * Ez_out(_i, _j, _k).imag()) + 4 * PI * k_norm(_i, _j, _k).y * \
+								(S_E / (k_vec_len(_i, _j, _k) * c) - steps.dt) * (k_norm(_i, _j, _k).x * Jx_out(_i, _j, _k).imag() + k_norm(_i, _j, _k).y * Jy_out(_i, _j, _k).imag() + \
+									k_norm(_i, _j, _k).z * Jz_out(_i, _j, _k).imag()));
+
+						Ez_out(_i, _j, _k).real(C_E * Ez_out(_i, _j, _k).real() - S_E * (k_norm(_i, _j, _k).x * By_out(_i, _j, _k).imag() - Bx_out(_i, _j, _k).imag() * k_norm(_i, _j, _k).y) \
+							- 4 * PI * S_E / (k_vec_len(_i, _j, _k) * c) * Jz_out(_i, _j, _k).real() + (1 - C_E) * k_norm(_i, _j, _k).z * (k_norm(_i, _j, _k).x * Ex_out(_i, _j, _k).real() \
+								+ k_norm(_i, _j, _k).y * Ey_out(_i, _j, _k).real() + k_norm(_i, _j, _k).z * Ez_out(_i, _j, _k).real()) + 4 * PI * k_norm(_i, _j, _k).z * \
+								(S_E / (k_vec_len(_i, _j, _k) * c) - steps.dt) * (k_norm(_i, _j, _k).x * Jx_out(_i, _j, _k).real() + k_norm(_i, _j, _k).y * Jy_out(_i, _j, _k).real() + \
+									k_norm(_i, _j, _k).z * Jz_out(_i, _j, _k).real()));
+
+						Ez_out(_i, _j, _k).imag(C_E * Ez_out(_i, _j, _k).imag() + S_E * (k_norm(_i, _j, _k).x * By_out(_i, _j, _k).real() - Bx_out(_i, _j, _k).real() * k_norm(_i, _j, _k).y) \
+							- 4 * PI * S_E / (k_vec_len(_i, _j, _k) * c) * Jz_out(_i, _j, _k).imag() + (1 - C_E) * k_norm(_i, _j, _k).z * (k_norm(_i, _j, _k).x * Ex_out(_i, _j, _k).imag() \
+								+ k_norm(_i, _j, _k).y * Ey_out(_i, _j, _k).imag() + k_norm(_i, _j, _k).z * Ez_out(_i, _j, _k).imag()) + 4 * PI * k_norm(_i, _j, _k).z * \
+								(S_E / (k_vec_len(_i, _j, _k) * c) - steps.dt) * (k_norm(_i, _j, _k).x * Jx_out(_i, _j, _k).imag() + k_norm(_i, _j, _k).y * Jy_out(_i, _j, _k).imag() + \
+									k_norm(_i, _j, _k).z * Jz_out(_i, _j, _k).imag()));*/
+						Bx_out(_i, _j, _k) = C_B * Bx_out(_i, _j, _k) - I * S_B * (k_norm(_i, _j, _k).y * Ez_out(_i, _j, _k) - Ey_out(_i, _j, _k) * k_norm(_i, _j, _k).z) \
+							+ 4 * PI * I * (1 - C_B) / (k_vec_len(_i, _j, _k) * c) * (k_norm(_i, _j, _k).y * Jz_out(_i, _j, _k) - Jy_out(_i, _j, _k) * k_norm(_i, _j, _k).z);
+
+						By_out(_i, _j, _k) = C_B * By_out(_i, _j, _k) + I * S_B * (k_norm(_i, _j, _k).x * Ez_out(_i, _j, _k) - Ex_out(_i, _j, _k) * k_norm(_i, _j, _k).z) \
+							- 4 * PI * I * (1 - C_B) / (k_vec_len(_i, _j, _k) * c) * (k_norm(_i, _j, _k).x * Jz_out(_i, _j, _k) - Jx_out(_i, _j, _k) * k_norm(_i, _j, _k).z);
+
+						Bz_out(_i, _j, _k) = (C_B * Bz_out(_i, _j, _k) - I * S_B * (k_norm(_i, _j, _k).x * Ey_out(_i, _j, _k) - Ex_out(_i, _j, _k) * k_norm(_i, _j, _k).y) \
+							+ 4 * PI * I * (1 - C_B) / (k_vec_len(_i, _j, _k) * c) * (k_norm(_i, _j, _k).x * Jy_out(_i, _j, _k) - Jx_out(_i, _j, _k) * k_norm(_i, _j, _k).y));
+
+						Ex_out(_i, _j, _k) = C_E * Ex_out(_i, _j, _k) + I * S_E * (k_norm(_i, _j, _k).y * Bz_out(_i, _j, _k) - By_out(_i, _j, _k) * k_norm(_i, _j, _k).z) \
+							- 4 * PI * S_E / (k_vec_len(_i, _j, _k) * c) * Jx_out(_i, _j, _k) + (1 - C_E) * k_norm(_i, _j, _k).x * (k_norm(_i, _j, _k).x * Ex_out(_i, _j, _k) \
+								+ k_norm(_i, _j, _k).y * Ey_out(_i, _j, _k) + k_norm(_i, _j, _k).z * Ez_out(_i, _j, _k)) + 4 * PI * k_norm(_i, _j, _k).x * \
+								(S_E / (k_vec_len(_i, _j, _k) * c) - steps.dt) * (k_norm(_i, _j, _k).x * Jx_out(_i, _j, _k) + k_norm(_i, _j, _k).y * Jy_out(_i, _j, _k) + \
+									k_norm(_i, _j, _k).z * Jz_out(_i, _j, _k));
+
+						Ey_out(_i, _j, _k) = C_E * Ey_out(_i, _j, _k) - I * S_E * (k_norm(_i, _j, _k).x * Bz_out(_i, _j, _k) - Bx_out(_i, _j, _k) * k_norm(_i, _j, _k).z) \
+							- 4 * PI * S_E / (k_vec_len(_i, _j, _k) * c) * Jy_out(_i, _j, _k) + (1 - C_E) * k_norm(_i, _j, _k).y * (k_norm(_i, _j, _k).x * Ex_out(_i, _j, _k) \
+								+ k_norm(_i, _j, _k).y * Ey_out(_i, _j, _k) + k_norm(_i, _j, _k).z * Ez_out(_i, _j, _k)) + 4 * PI * k_norm(_i, _j, _k).y * \
+								(S_E / (k_vec_len(_i, _j, _k) * c) - steps.dt) * (k_norm(_i, _j, _k).x * Jx_out(_i, _j, _k) + k_norm(_i, _j, _k).y * Jy_out(_i, _j, _k) + \
+									k_norm(_i, _j, _k).z * Jz_out(_i, _j, _k));
+
+						Ez_out(_i, _j, _k) = C_E * Ez_out(_i, _j, _k) + I * S_E * (k_norm(_i, _j, _k).x * By_out(_i, _j, _k) - Bx_out(_i, _j, _k) * k_norm(_i, _j, _k).y) \
+							- 4 * PI * S_E / (k_vec_len(_i, _j, _k) * c) * Jz_out(_i, _j, _k) + (1 - C_E) * k_norm(_i, _j, _k).z * (k_norm(_i, _j, _k).x * Ex_out(_i, _j, _k) \
+								+ k_norm(_i, _j, _k).y * Ey_out(_i, _j, _k) + k_norm(_i, _j, _k).z * Ez_out(_i, _j, _k)) + 4 * PI * k_norm(_i, _j, _k).z * \
+								(S_E / (k_vec_len(_i, _j, _k) * c) - steps.dt) * (k_norm(_i, _j, _k).x * Jx_out(_i, _j, _k) + k_norm(_i, _j, _k).y * Jy_out(_i, _j, _k) + \
+									k_norm(_i, _j, _k).z * Jz_out(_i, _j, _k));
+
+					}
+				}
+			}
+		}
+
+		_Ex_plan = fftw_plan_dft_c2r_3d(nx, ny, nz, (fftw_complex*)(Ex_out.data()), E.x.data(), FFTW_ESTIMATE);
+		_Ey_plan = fftw_plan_dft_c2r_3d(nx, ny, nz, (fftw_complex*)(Ey_out.data()), E.y.data(), FFTW_ESTIMATE);
+		_Ez_plan = fftw_plan_dft_c2r_3d(nx, ny, nz, (fftw_complex*)(Ez_out.data()), E.z.data(), FFTW_ESTIMATE);
+		_Bx_plan = fftw_plan_dft_c2r_3d(nx, ny, nz, (fftw_complex*)(Bx_out.data()), B.x.data(), FFTW_ESTIMATE);
+		_By_plan = fftw_plan_dft_c2r_3d(nx, ny, nz, (fftw_complex*)(By_out.data()), B.y.data(), FFTW_ESTIMATE);
+		_Bz_plan = fftw_plan_dft_c2r_3d(nx, ny, nz, (fftw_complex*)(Bz_out.data()), B.z.data(), FFTW_ESTIMATE);
+		_Jx_plan = fftw_plan_dft_c2r_3d(nx, ny, nz, (fftw_complex*)(Jx_out.data()), J.x.data(), FFTW_ESTIMATE);
+		_Jy_plan = fftw_plan_dft_c2r_3d(nx, ny, nz, (fftw_complex*)(Jy_out.data()), J.y.data(), FFTW_ESTIMATE);
+		_Jz_plan = fftw_plan_dft_c2r_3d(nx, ny, nz, (fftw_complex*)(Jz_out.data()), J.z.data(), FFTW_ESTIMATE);
+
+		fftw_execute(_Ex_plan);
+		fftw_execute(_Ey_plan);
+		fftw_execute(_Ez_plan);
+		fftw_execute(_Bx_plan);
+		fftw_execute(_By_plan);
+		fftw_execute(_Bz_plan);
+		fftw_execute(_Jx_plan);
+		fftw_execute(_Jy_plan);
+		fftw_execute(_Jz_plan);
+
+		for (int _i = 0; _i < size; _i++) {
+			E.x[_i] /= size;
+			E.y[_i] /= size;
+			E.z[_i] /= size;
+			B.x[_i] /= size;
+			B.y[_i] /= size;
+			B.z[_i] /= size;
+			J.x[_i] /= size;
+			J.y[_i] /= size;
+			J.z[_i] /= size;
+		}
+
+		fftw_destroy_plan(Ex_plan);
+		fftw_destroy_plan(Ey_plan);
+		fftw_destroy_plan(Ez_plan);
+		fftw_destroy_plan(Bx_plan);
+		fftw_destroy_plan(By_plan);
+		fftw_destroy_plan(Bz_plan);
+		fftw_destroy_plan(Jx_plan);
+		fftw_destroy_plan(Jy_plan);
+		fftw_destroy_plan(Jz_plan);
+
+		fftw_destroy_plan(_Ex_plan);
+		fftw_destroy_plan(_Ey_plan);
+		fftw_destroy_plan(_Ez_plan);
+		fftw_destroy_plan(_Bx_plan);
+		fftw_destroy_plan(_By_plan);
+		fftw_destroy_plan(_Bz_plan);
+		fftw_destroy_plan(_Jx_plan);
+		fftw_destroy_plan(_Jy_plan);
+		fftw_destroy_plan(_Jz_plan);
+
+		return (*this);
+	}
 };

@@ -1,27 +1,5 @@
 #include "elec_magn_field.h"
 
-double f(double x, double y = 0.0, double z = 0.0) {
-	estimated_area Area;
-	return double(sin(2 * PI * (x - Area.a) / (Area.b - Area.a)));
-}
-
-double f_real_solution(double t, double x, double y = 0.0, double z = 0.0) {
-	estimated_area Area;
-	return double(sin(2 * PI * (x - Area.a - c * t) / (Area.b - Area.a)));
-}
-
-
-double f2( double y, double x = 0.0, double z = 0.0) {
-	estimated_area Area;
-	return double(sin(2 * PI * (y - Area.a) / (Area.b - Area.a)));
-}
-
-double f_real_solution2(double t,  double y, double x = 0.0, double z = 0.0) {
-	estimated_area Area;
-	return double(sin(2 * PI * (y - Area.a - c * t) / (Area.b - Area.a)));
-}
-
-
 int main()
 {
 	// сферическая волна
@@ -34,12 +12,12 @@ int main()
 	std::ofstream fout("spherical_wave_modify_Jy.txt");
 	
 
-	elec_magn_field<> f;
+	elec_magn_field<> f(0.1, c, c, c, -n * c /2, n * c /2, 0, c, - n * c / 2, n * c / 2);
 
 	int i = 1;
 	int _k = int(f.T / f.steps.dt);
 
-	for (double t = f.steps.dt; t <= t1; t += f.steps.dt) {
+	for (double t = 0; t <= t1; t += f.steps.dt) {
 		if (i <= _k) {
 			f.modify_Jy(i);
 		}
